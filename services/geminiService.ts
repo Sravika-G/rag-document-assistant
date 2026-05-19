@@ -22,11 +22,55 @@ function getAI() {
   return genAI;
 }
 
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3,
+  delayMs = 1000,
+  backoffFactor = 2
+): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      attempt++;
+      console.warn(`Gemini API call failed (attempt ${attempt}/${maxRetries}):`, error);
+      
+      const isTransient = 
+        !error.status || 
+        error.status === 503 || 
+        error.status === 429 || 
+        error.status >= 500 ||
+        (error.message && (
+          error.message.includes("503") || 
+          error.message.includes("429") || 
+          error.message.includes("UNAVAILABLE") || 
+          error.message.includes("busy") || 
+          error.message.includes("overloaded") || 
+          error.message.includes("Resource has been exhausted") ||
+          error.message.includes("rate limit")
+        ));
+      
+      if (attempt >= maxRetries) {
+        if (isTransient) {
+          throw new Error("Gemini is busy, please try again in a moment.");
+        }
+        throw error;
+      }
+      
+      const waitTime = delayMs * Math.pow(backoffFactor, attempt - 1) + Math.random() * 200;
+      console.log(`Waiting ${Math.round(waitTime)}ms before next attempt...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+  }
+}
+
 export async function generateSummary(text: string) {
   const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: `Summarize the following document text. Provide:
+  const response = await retryWithBackoff(() => 
+    ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `Summarize the following document text. Provide:
 1. A concise overview.
 2. 5 key points.
 3. 3-5 action items if applicable.
@@ -35,10 +79,11 @@ Return ONLY a JSON object with keys: "summary", "key_points" (array), and "actio
 
 Document text:
 ${text.substring(0, 10000)}`, // Limit for token safety
-    config: {
-      responseMimeType: "application/json",
-    }
-  });
+      config: {
+        responseMimeType: "application/json",
+      }
+    })
+  );
 
   try {
     return JSON.parse(response.text || '{}');
@@ -50,25 +95,29 @@ ${text.substring(0, 10000)}`, // Limit for token safety
 
 export async function getEmbedding(text: string): Promise<number[]> {
   const ai = getAI();
-  const result = await ai.models.embedContent({
-    model: "gemini-embedding-2-preview",
-    contents: [{ parts: [{ text }] }],
-  });
+  const result = await retryWithBackoff(() =>
+    ai.models.embedContent({
+      model: "gemini-embedding-2-preview",
+      contents: [{ parts: [{ text }] }],
+    })
+  );
   return result.embeddings[0].values;
 }
 
 export async function generateAnswer(query: string, context: string) {
   const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: `You are a helpful document assistant. Use the following context from the document to answer the user's question. 
+  const response = await retryWithBackoff(() =>
+    ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `You are a helpful document assistant. Use the following context from the document to answer the user's question. 
 If the answer is not in the context, say you don't know, but answer as best as you can based ONLY on the provided context.
 
 Context:
 ${context}
 
 User Question: ${query}`,
-  });
+    })
+  );
 
   return response.text;
 }

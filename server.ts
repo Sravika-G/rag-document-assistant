@@ -12,20 +12,28 @@ import { findRelevantChunks } from "./services/vectorService";
 const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret-for-dev";
 
 async function startServer() {
-  console.log("Starting server initialization...");
+  console.log("Starting server initialization sequence...");
   const app = express();
   const PORT = 3000;
 
-  app.get("/health", (req, res) => res.send("OK"));
+  app.get("/health", (req, res) => res.json({ status: "ok" }));
+  app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 
   app.use(express.json());
 
   // Database initialization
-  console.log("Initializing database...");
-  const db = await getDb();
-  console.log("Database initialized.");
+  let db: any;
+  try {
+    console.log("Initializing database connection...");
+    db = await getDb();
+    console.log("Database successfully initialized.");
+  } catch (err) {
+    console.error("FAILED to initialize database:", err);
+    throw err;
+  }
 
   // Multer setup
+  console.log("Setting up middleware...");
   const upload = multer({ storage: multer.memoryStorage() });
 
   // Auth Middleware
@@ -73,11 +81,30 @@ async function startServer() {
 
   // --- Document Routes ---
   app.post("/api/documents/upload", authenticateToken, upload.single('file'), async (req: any, res) => {
-    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+    console.log(`[Upload API] Called by user: ${req.user ? req.user.email : 'Unknown'}`);
+    if (!req.file) {
+      console.warn("[Upload API] Warning: No file uploaded in the request.");
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+    console.log(`[Upload API] Processing file: ${req.file.originalname}, size: ${req.file.size} bytes`);
 
     try {
       const text = await extractTextFromBuffer(req.file.buffer);
-      const { summary, key_points, action_items } = await generateSummary(text);
+      
+      let summary = "Summary pending or unavailable because Gemini is busy.";
+      let key_points: string[] = [];
+      let action_items: string[] = [];
+      let aiWarning: string | null = null;
+
+      try {
+        const aiSummary = await generateSummary(text);
+        summary = aiSummary.summary || summary;
+        key_points = aiSummary.key_points || [];
+        action_items = aiSummary.action_items || [];
+      } catch (sumErr: any) {
+        console.error("AI Summary step failed:", sumErr);
+        aiWarning = "Gemini is busy, please try again in a moment.";
+      }
       
       const docResult = await db.run(
         "INSERT INTO documents (user_id, name, content, summary, key_points, action_items) VALUES (?, ?, ?, ?, ?, ?)",
@@ -87,13 +114,26 @@ async function startServer() {
       const docId = docResult.lastID;
 
       // Processing chunks in background or now
-      const chunks = chunkText(text);
-      for (const chunk of chunks) {
-        const embedding = await getEmbedding(chunk);
-        await db.run("INSERT INTO chunks (doc_id, text, embedding) VALUES (?, ?, ?)", [docId, chunk, JSON.stringify(embedding)]);
+      try {
+        const chunks = chunkText(text);
+        for (const chunk of chunks) {
+          let embedding: number[] = [];
+          try {
+            embedding = await getEmbedding(chunk);
+          } catch (embedErr: any) {
+            console.error("Failed to generate embedding for a chunk:", embedErr);
+            aiWarning = "Gemini is busy, please try again in a moment.";
+            // Fill with a zero vector as fallback
+            embedding = new Array(768).fill(0);
+          }
+          await db.run("INSERT INTO chunks (doc_id, text, embedding) VALUES (?, ?, ?)", [docId, chunk, JSON.stringify(embedding)]);
+        }
+      } catch (chunkErr: any) {
+        console.error("Chunking or embedding step failed:", chunkErr);
+        aiWarning = "Gemini is busy, please try again in a moment.";
       }
 
-      res.status(201).json({ id: docId, name: req.file.originalname });
+      res.status(201).json({ id: docId, name: req.file.originalname, warning: aiWarning });
     } catch (err: any) {
       console.error('Upload error details:', err);
       res.status(500).json({ error: err.message || "Failed to process document" });
@@ -154,6 +194,20 @@ async function startServer() {
     res.json(history);
   });
 
+  // Catch unmatched /api routes to prevent them from falling through to the React/Vite index.html handler
+  app.all("/api/*", (req, res) => {
+    console.warn(`[API Endpoint Not Found] ${req.method} ${req.originalUrl}`);
+    res.status(404).json({ error: `API route ${req.method} ${req.originalUrl} not found` });
+  });
+
+  // Centralized Error-handling middleware for /api routes to format errors as JSON instead of HTML
+  app.use("/api", (err: any, req: Request, res: Response, next: NextFunction) => {
+    console.error(`[API Error Handler] Error on ${req.method} ${req.originalUrl}:`, err);
+    res.status(err.status || err.statusCode || 500).json({
+      error: err.message || "An unexpected database or server error occurred."
+    });
+  });
+
   // --- Vite / Static Files ---
   if (process.env.NODE_ENV !== "production") {
     console.log("Starting Vite in middleware mode...");
@@ -175,6 +229,15 @@ async function startServer() {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
 }
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception:", err);
+  process.exit(1);
+});
 
 startServer().catch(err => {
   console.error("Critical server startup error:", err);

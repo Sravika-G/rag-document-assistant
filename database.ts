@@ -8,13 +8,16 @@ export async function getDb() {
   if (db) return db;
 
   const dbPath = path.join(process.cwd(), 'database.sqlite');
+  console.log(`Connecting to SQLite database at: ${dbPath}`);
   
   db = await open({
     filename: dbPath,
     driver: sqlite3.Database
   });
+  console.log("Database connection established.");
 
   // Initialize tables
+  console.log("Initializing database schema...");
   await db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
