@@ -1,0 +1,6 @@
+{
+  "name": "RAG Document Assistant",
+  "description": "Full-stack AI Document Assistant for uploading PDFs, summarizing them, and chatting with them using RAG and Gemini AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
