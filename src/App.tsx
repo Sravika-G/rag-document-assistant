@@ -374,10 +374,38 @@ function DocumentView() {
   const [asking, setAsking] = useState(false);
   const [activeTab, setActiveTab] = useState<'summary' | 'chat'>('summary');
 
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenError, setRegenError] = useState("");
+
   useEffect(() => {
     fetchDoc();
     fetchHistory();
   }, [id]);
+
+  const handleRegenerateSummary = async () => {
+    setRegenerating(true);
+    setRegenError("");
+    try {
+      const res = await fetchWithAuth(`/documents/${id}/regenerate-summary`, {
+        method: "POST"
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Gemini is busy, please try again in a moment.");
+      }
+      setDoc((prev: any) => ({
+        ...prev,
+        summary: data.summary,
+        key_points: data.key_points,
+        action_items: data.action_items
+      }));
+    } catch (err: any) {
+      console.error(err);
+      setRegenError(err.message || "Failed to regenerate summary.");
+    } finally {
+      setRegenerating(false);
+    }
+  };
 
   const fetchDoc = async () => {
     const res = await fetchWithAuth(`/documents/${id}`);
@@ -475,7 +503,34 @@ function DocumentView() {
                   <Sparkles size={16} className="text-blue-500" />
                   Overview
                 </h2>
-                <p className="text-white/90 leading-relaxed text-xl font-medium tracking-tight">{doc.summary}</p>
+                <p className="text-white/90 leading-relaxed text-xl font-medium tracking-tight mb-4">{doc.summary}</p>
+                {(doc.summary?.includes("temporarily unavailable") || doc.summary?.includes("busy") || doc.summary?.includes("pending")) && (
+                  <div className="mt-4">
+                    <button
+                      onClick={handleRegenerateSummary}
+                      disabled={regenerating}
+                      id="regenerate-summary-btn"
+                      className="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-blue-500 transition-all cursor-pointer disabled:opacity-50 shadow-lg shadow-blue-600/20"
+                    >
+                      {regenerating ? (
+                        <>
+                          <Loader2 className="animate-spin" size={16} />
+                          Regenerating...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={16} />
+                          Regenerate Summary
+                        </>
+                      )}
+                    </button>
+                    {regenError && (
+                      <p className="text-red-400 text-xs mt-2 flex items-center gap-1">
+                        <AlertCircle size={14} /> {regenError}
+                      </p>
+                    )}
+                  </div>
+                )}
               </section>
 
               <div className="grid md:grid-cols-2 gap-8">

@@ -8,7 +8,7 @@ let genAI: GoogleGenAI | null = null;
 function getAI() {
   if (!genAI) {
     if (!apiKey) {
-      throw new Error("GEMINI_API_KEY is not set");
+      throw new Error("GEMINI_API_KEY environment variable is not set.");
     }
     genAI = new GoogleGenAI({ 
       apiKey,
@@ -22,7 +22,7 @@ function getAI() {
   return genAI;
 }
 
-async function retryWithBackoff<T>(
+export async function retryWithBackoff<T>(
   fn: () => Promise<T>,
   maxRetries = 3,
   delayMs = 1000,
@@ -65,12 +65,49 @@ async function retryWithBackoff<T>(
   }
 }
 
-export async function generateSummary(text: string) {
+/**
+ * Executes a text generation model call with fallback and retries.
+ */
+async function generateContentWithFallback(params: {
+  model?: string;
+  contents: any;
+  config?: any;
+}): Promise<GenerateContentResponse> {
   const ai = getAI();
-  const response = await retryWithBackoff(() => 
-    ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `Summarize the following document text. Provide:
+  const primaryModel = params.model || "gemini-3.5-flash";
+  const fallbackModel = "gemini-3.1-flash-lite";
+
+  try {
+    console.log(`[Gemini API] Requesting primary model: ${primaryModel}`);
+    return await retryWithBackoff(() => 
+      ai.models.generateContent({
+        ...params,
+        model: primaryModel,
+      }),
+      2,
+      800
+    );
+  } catch (primaryErr: any) {
+    console.warn(`[Gemini API] Primary model ${primaryModel} failed. Retrying with fallback ${fallbackModel}...`, primaryErr);
+    try {
+      return await retryWithBackoff(() =>
+        ai.models.generateContent({
+          ...params,
+          model: fallbackModel,
+        }),
+        2,
+        1000
+      );
+    } catch (fallbackErr: any) {
+      console.error(`[Gemini API] Both primary and fallback models failed.`);
+      throw fallbackErr;
+    }
+  }
+}
+
+export async function generateSummary(text: string) {
+  const response = await generateContentWithFallback({
+    contents: `Summarize the following document text. Provide:
 1. A concise overview.
 2. 5 key points.
 3. 3-5 action items if applicable.
@@ -79,17 +116,20 @@ Return ONLY a JSON object with keys: "summary", "key_points" (array), and "actio
 
 Document text:
 ${text.substring(0, 10000)}`, // Limit for token safety
-      config: {
-        responseMimeType: "application/json",
-      }
-    })
-  );
+    config: {
+      responseMimeType: "application/json",
+    }
+  });
 
   try {
     return JSON.parse(response.text || '{}');
   } catch (e) {
-    console.error("Failed to parse Gemini summary response", response.text);
-    return { summary: response.text, key_points: [], action_items: [] };
+    console.error("Failed to parse Gemini summary response:", response.text);
+    return { 
+      summary: response.text || "Summary unavailable at this moment.", 
+      key_points: [], 
+      action_items: [] 
+    };
   }
 }
 
@@ -105,19 +145,15 @@ export async function getEmbedding(text: string): Promise<number[]> {
 }
 
 export async function generateAnswer(query: string, context: string) {
-  const ai = getAI();
-  const response = await retryWithBackoff(() =>
-    ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `You are a helpful document assistant. Use the following context from the document to answer the user's question. 
+  const response = await generateContentWithFallback({
+    contents: `You are a helpful document assistant. Use the following context from the document to answer the user's question. 
 If the answer is not in the context, say you don't know, but answer as best as you can based ONLY on the provided context.
 
 Context:
 ${context}
 
 User Question: ${query}`,
-    })
-  );
+  });
 
-  return response.text;
+  return response.text || "I was unable to retrieve a response from the model. Please try again.";
 }

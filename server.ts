@@ -59,9 +59,10 @@ async function startServer() {
       await db.run("INSERT INTO users (email, password) VALUES (?, ?)", [email, hashedPassword]);
       res.status(201).json({ message: "User created" });
     } catch (err: any) {
-      if (err.message.includes("UNIQUE constraint failed")) {
+      if (err.code === '23505' || err.message.includes("UNIQUE constraint") || err.message.toLowerCase().includes("unique")) {
         res.status(400).json({ error: "Email already exists" });
       } else {
+        console.error("Signup error details:", err);
         res.status(500).json({ error: "Signup failed" });
       }
     }
@@ -91,7 +92,7 @@ async function startServer() {
     try {
       const text = await extractTextFromBuffer(req.file.buffer);
       
-      let summary = "Summary pending or unavailable because Gemini is busy.";
+      let summary = "Summary temporarily unavailable. Try regenerating later.";
       let key_points: string[] = [];
       let action_items: string[] = [];
       let aiWarning: string | null = null;
@@ -104,6 +105,7 @@ async function startServer() {
       } catch (sumErr: any) {
         console.error("AI Summary step failed:", sumErr);
         aiWarning = "Gemini is busy, please try again in a moment.";
+        summary = "Summary temporarily unavailable. Try regenerating later.";
       }
       
       const docResult = await db.run(
@@ -192,6 +194,30 @@ async function startServer() {
       h.sources = JSON.parse(h.sources);
     });
     res.json(history);
+  });
+
+  app.post("/api/documents/:id/regenerate-summary", authenticateToken, async (req: any, res) => {
+    const docId = req.params.id;
+    try {
+      const doc = await db.get("SELECT * FROM documents WHERE id = ? AND user_id = ?", [docId, req.user.id]);
+      if (!doc) return res.status(404).json({ error: "Document not found" });
+
+      console.log(`[Regenerate Summary] Triggered for doc: ${docId}`);
+      const aiSummary = await generateSummary(doc.content);
+      const summary = aiSummary.summary || "Summary temporarily unavailable. Try regenerating later.";
+      const key_points = aiSummary.key_points || [];
+      const action_items = aiSummary.action_items || [];
+
+      await db.run(
+        "UPDATE documents SET summary = ?, key_points = ?, action_items = ? WHERE id = ?",
+        [summary, JSON.stringify(key_points), JSON.stringify(action_items), docId]
+      );
+
+      res.json({ id: docId, summary, key_points, action_items });
+    } catch (err: any) {
+      console.error("[Regenerate Summary] Failed:", err);
+      res.status(500).json({ error: "Gemini is busy, please try again in a moment." });
+    }
   });
 
   // Catch unmatched /api routes to prevent them from falling through to the React/Vite index.html handler

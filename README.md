@@ -16,16 +16,50 @@ A full-stack web application that allows users to upload PDF documents, automati
 
 - **Frontend:** React, Tailwind CSS, Motion, Lucide React, React Router.
 - **Backend:** Node.js, Express.
-- **Database:** SQLite (Metadata & Chat history), Local Vector Search.
+- **Database:** PostgreSQL (Metadata, chunks, embeddings, & Chat history), Persistent Retrieval.
 - **AI:** Google Gemini API (Generation & Embeddings).
 
 ## How it Works
 
 1. **Upload:** When a PDF is uploaded, the backend extracts the raw text.
-2. **Analysis:** Gemini 3 Flash analyzes the full text to generate a structured summary.
-3. **Chunking & Indexing:** The text is split into chunks. Each chunk is embedded using `gemini-embedding-2-preview`.
-4. **Retrieval (RAG):** When you ask a question, the query is embedded, and the most similar chunks are retrieved from the local database.
-5. **Generation:** The retrieved sections are provided as context to Gemini 3 Flash to generate a grounded answer.
+2. **Analysis:** Gemini 3.5 Flash analyzes the text to generate a structured summary.
+3. **Chunking & Indexing:** The text is split into chunks. Each chunk is embedded using `gemini-embedding-2-preview` and indexed in PostgreSQL.
+4. **Retrieval (RAG):** When you ask a question, the query is embedded, and the most similar chunks are retrieved from the database.
+5. **Generation:** The retrieved sections are provided as context to Gemini to generate a grounded answer.
+
+## Render Deployment Instructions
+
+This project is fully designed and optimized to be deployed on **Render** with a persistent PostgreSQL database.
+
+### Prerequisites on Render
+
+1. **Create a PostgreSQL Database on Render:**
+   - Go to your Render Dashboard and click **New > Database**.
+   - Set a name and region, and choose the Free tier.
+   - Once created, copy the **Internal Database URL** (if deploying the server on Render) or the **External Database URL**. Use this as your `DATABASE_URL`.
+
+2. **Create a Web Service on Render:**
+   - Click **New > Web Service**.
+   - Connect your GitHub repository.
+   - Configure the Web Service settings as follows:
+     - **Runtime:** `Node`
+     - **Build Command:** `npm run build`
+     - **Start Command:** `npm start`
+     - **Port:** Render will automatically detect or default to `3000`.
+
+### Environment Variables on Render
+
+In your Web Service settings under the **Environment** tab, add the following variables:
+
+| Key | Value | Description |
+|---|---|---|
+| `DATABASE_URL` | *your_postgresql_database_url* | Your Render PostgreSQL connection string. |
+| `GEMINI_API_KEY` | *your_gemini_api_key* | Your Google Gemini API Key from Google AI Studio. |
+| `JWT_SECRET` | *your_random_string* | A long random string used to secure user auth tokens. |
+| `NODE_ENV` | `production` | Enables compilation optimization and production static file serving. |
+
+### Free Tier Sleep Handling
+Render's Free Tier web services spin down after 15 minutes of inactivity. When a new request arrives, Render will spin the service back up automatically. Since we are using PostgreSQL, all registered users, their uploaded documents, chunks, embeddings, and chat histories will remain **100% persistent** and will not be deleted when the instance spins down.
 
 ## Local Setup
 
