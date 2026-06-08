@@ -1,8 +1,27 @@
+# Dependencies
 node_modules/
-build/
-dist/
+/.pnp
+.pnp.js
+
+# Testing
 coverage/
+
+# Production build outputs
+dist/
+build/
+
+# Miscellaneous
 .DS_Store
+*.pem
 *.log
-.env*
+
+# Databases & local state
+database.sqlite*
+*.sqlite*
+*.db
+.pnpm-debug.log*
+
+# Environment files
+.env
+.env.*
 !.env.example

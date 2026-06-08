@@ -1,17 +1,16 @@
 import { GoogleGenAI } from "@google/genai";
 import { GenerateContentResponse } from "@google/genai";
 
-const apiKey = process.env.GEMINI_API_KEY;
-
 let genAI: GoogleGenAI | null = null;
 
 function getAI() {
   if (!genAI) {
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY environment variable is not set.");
+    const key = process.env.GEMINI_API_KEY;
+    if (!key || key === "MY_GEMINI_API_KEY") {
+      throw new Error("GEMINI_API_KEY is not configured. Please supply a valid Google Gemini API Key in the settings.");
     }
     genAI = new GoogleGenAI({ 
-      apiKey,
+      apiKey: key,
       httpOptions: {
         headers: {
           'User-Agent': 'aistudio-build',
