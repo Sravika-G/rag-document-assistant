@@ -78,7 +78,12 @@ export async function getDb(): Promise<DBWrapper> {
         );
       `);
 
-      console.log("SQLite schema verified/initialized successfully.");
+      // Performance index optimization for database persistence
+      await sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_documents_user_id ON documents(user_id);`);
+      await sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id);`);
+      await sqliteDb.exec(`CREATE INDEX IF NOT EXISTS idx_chat_history_doc_id ON chat_history(doc_id);`);
+
+      console.log("SQLite schema and indexes verified/initialized successfully.");
       activeDb = getSqliteWrapper(sqliteDb);
       return activeDb;
     } catch (sqliteErr) {
@@ -156,9 +161,14 @@ export async function getDb(): Promise<DBWrapper> {
         FOREIGN KEY(doc_id) REFERENCES documents(id) ON DELETE CASCADE
       );
     `);
+
+    // Add indexes for speedy query execution on large databases
+    await setupClient.query(`CREATE INDEX IF NOT EXISTS idx_pg_documents_user_id ON documents(user_id);`);
+    await setupClient.query(`CREATE INDEX IF NOT EXISTS idx_pg_chunks_doc_id ON chunks(doc_id);`);
+    await setupClient.query(`CREATE INDEX IF NOT EXISTS idx_pg_chat_history_doc_id ON chat_history(doc_id);`);
     
     await setupClient.query("COMMIT;");
-    console.log("PostgreSQL database migrations executed successfully.");
+    console.log("PostgreSQL database migrations executed successfully with system indexes.");
   } catch (schemaErr) {
     await setupClient.query("ROLLBACK;");
     console.error("Error setting up database schema in PostgreSQL:", schemaErr);

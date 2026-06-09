@@ -2,6 +2,11 @@
 
 A full-stack web application that allows users to upload PDF documents, automatically summarizes them, and lets users chat with the document content using RAG (Retrieval-Augmented Generation) powered by Gemini AI.
 
+> [!IMPORTANT]
+> **Data Persistence Notice:** 
+> When deploying this application to cloud-hosting platforms (such as Render, Heroku, or Docker-based container services), the default local SQLite database (`database.sqlite`) will reset whenever the instance restarts or redeploys because container filesystems are ephemeral. 
+> To ensure your **user accounts, uploaded documents, and chat history persist permanently**, you **MUST** configure a PostgreSQL database (like Supabase, Neon, or Render PostgreSQL) and provide the connection string via the `DATABASE_URL` environment variable.
+
 ## Features
 
 - **JWT Authentication:** Secure signup and login.

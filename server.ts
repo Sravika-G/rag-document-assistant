@@ -26,7 +26,11 @@ async function startServer() {
   try {
     console.log("Initializing database connection...");
     db = await getDb();
-    console.log("Database successfully initialized.");
+    if (process.env.DATABASE_URL) {
+      console.log("DATABASE SUCCESSFULLY INITIALIZED WITH PERSISTENT POSTGRESQL.");
+    } else {
+      console.log("DATABASE INITIALIZED WITH FALLBACK LOCAL SQLITE. (Note: Use DATABASE_URL in production for durable persistence)");
+    }
   } catch (err) {
     console.error("FAILED to initialize database:", err);
     throw err;

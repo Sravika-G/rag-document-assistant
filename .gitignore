@@ -15,7 +15,7 @@ build/
 *.pem
 *.log
 
-# Databases & local state
+# Databases & local ephemeral state (Excluded from Git commits)
 database.sqlite*
 *.sqlite*
 *.db
